@@ -1,0 +1,25 @@
+torch==2.1.0+cu121
+torchvision
+torchaudio
+--find-links https://download.pytorch.org/whl/torch_stable.html
+
+transformers==4.35.0
+accelerate==0.24.1
+datasets==2.15.0
+
+ninja
+pybind11
+py3nvml
+nvidia-ml-py3
+gpustat
+
+deap==1.4.1
+numpy
+scipy
+matplotlib
+pandas
+seaborn
+plotly
+
+jupyter
+ipython
