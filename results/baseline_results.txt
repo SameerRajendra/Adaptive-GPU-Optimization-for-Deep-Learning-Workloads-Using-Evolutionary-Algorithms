@@ -1,0 +1,2 @@
+Test Accuracy: 85.34%
+Training Time: 38.20 seconds
