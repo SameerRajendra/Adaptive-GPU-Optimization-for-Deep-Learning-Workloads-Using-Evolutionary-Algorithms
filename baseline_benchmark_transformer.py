@@ -10,6 +10,7 @@ from transformers import GPT2LMHeadModel, GPT2Tokenizer
 from typing import Dict, List
 import json
 from py3nvml import py3nvml
+import argparse
 
 
 class BaselineBenchmark:
@@ -120,8 +121,12 @@ class BaselineBenchmark:
 
 def main():
     # Configuration
-    batch_sizes = [1, 4, 8, 16]
-    seq_lengths = [64, 128, 256, 512]
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--batch_size', type=int, default=1)
+    parser.add_argument('--seq_length', type=int, default=128)
+    parser.add_argument('--precision', type=str, default='fp32')
+    parser.add_argument('--output', type=str, default='results.json')
+    args = parser.parse_args()
     
     # Run benchmark
     benchmark = BaselineBenchmark(model_name='gpt2')
