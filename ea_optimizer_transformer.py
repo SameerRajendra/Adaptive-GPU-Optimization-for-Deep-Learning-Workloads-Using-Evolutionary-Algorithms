@@ -7,9 +7,9 @@ from deap import base, creator, tools, algorithms
 import pandas as pd
 
 # Define search space for transformer optimization
-BATCH_SIZES = [1, 4, 8, 16]
+BATCH_SIZES = [8, 16, 32, 64, 128]
 SEQ_LENGTHS = [128, 256, 512]
-POWER_LIMITS = [200, 300, 400, 500]  # Watts
+POWER_LIMITS = [200, 300, 400, 500, 600, 700]  # Watts
 MEM_CLOCKS = [5001, 5201, 5401]  # MHz (adjust for your GPU)
 PRECISIONS = ["fp64","fp32", "fp16", "fp8"]
 
