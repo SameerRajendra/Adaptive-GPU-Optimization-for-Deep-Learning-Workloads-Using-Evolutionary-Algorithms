@@ -3,147 +3,205 @@ import random
 import subprocess
 import csv
 import json
+import sys
 from deap import base, creator, tools, algorithms
-import pandas as pd
 
-# Define search space for transformer optimization
-BATCH_SIZES = [8, 16, 32, 64, 128]
-SEQ_LENGTHS = [128, 256, 512]
-POWER_LIMITS = [200, 300, 400, 500, 600, 700]  # Watts
-MEM_CLOCKS = [5001, 5201, 5401]  # MHz (adjust for your GPU)
-PRECISIONS = ["fp64","fp32", "fp16", "fp8"]
+# ==== H100 80GB SEARCH SPACE ====
+BATCH_SIZES = [8, 16, 32, 64]
+SEQ_LENGTHS = [128, 256, 512, 1024]
+POWER_LIMITS = [300, 400, 500, 600, 700]
+MEM_CLOCKS = [1593, 2619]
+GRAPHICS_CLOCKS = [1200, 1410, 1620, 1800, 1980]
+PRECISIONS = ['fp32', 'fp16']
 
 GPU_INDEX = 0
-RESULTS_FILE = "ea_transformer_results.csv"
-GENERATION_LOG_FILE = "ea_transformer_generation_log.csv"
+RESULTS_FILE = "ea_h100_transformer_results.csv"
 
-# Initialize results file
 if not os.path.exists(RESULTS_FILE):
     with open(RESULTS_FILE, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "gpu_index", "batch_size", "seq_length", "power_limit", 
-            "mem_clock", "precision", "latency_ms", "throughput_tokens_per_sec", 
-            "memory_gb", "power_w"
+            "gpu_index", "batch_size", "seq_length", "power_limit", "mem_clock", 
+            "graphics_clock", "precision", "throughput_tokens_per_sec", "latency_ms", 
+            "memory_gb", "power_w", "status"
         ])
 
-# Multi-objective: maximize throughput, minimize latency and power
-creator.create("Fitness", base.Fitness, weights=(1.0, -1.0, -1.0))  # (throughput+, latency-, power-)
+creator.create("Fitness", base.Fitness, weights=(1.0, -1.0, -1.0))
 creator.create("Individual", list, fitness=creator.Fitness)
 
 toolbox = base.Toolbox()
-toolbox.register("batch", random.choice, BATCH_SIZES)
-toolbox.register("seq", random.choice, SEQ_LENGTHS)
-toolbox.register("power", random.choice, POWER_LIMITS)
-toolbox.register("mem", random.choice, MEM_CLOCKS)
-toolbox.register("precision", random.choice, PRECISIONS)
 
-toolbox.register(
-    "individual",
-    tools.initCycle,
-    creator.Individual,
-    (toolbox.batch, toolbox.seq, toolbox.power, toolbox.mem, toolbox.precision),
-    n=1,
-)
+# Create individual as a list with FIXED order
+def create_individual():
+    return creator.Individual([
+        random.choice(BATCH_SIZES),      # 0: batch_size
+        random.choice(SEQ_LENGTHS),      # 1: seq_length
+        random.choice(POWER_LIMITS),     # 2: power_limit
+        random.choice(MEM_CLOCKS),       # 3: mem_clock
+        random.choice(GRAPHICS_CLOCKS),  # 4: graphics_clock
+        random.choice(PRECISIONS)        # 5: precision
+    ])
+
+toolbox.register("individual", create_individual)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-toolbox.register("map", map)
+
+# FIXED GENETIC OPERATORS - maintain type constraints
+def cx_constrained(ind1, ind2):
+    """Crossover that respects parameter types"""
+    # Only swap complete genes, don't shuffle positions
+    if random.random() < 0.5:
+        for i in range(len(ind1)):
+            if random.random() < 0.5:
+                ind1[i], ind2[i] = ind2[i], ind1[i]
+    return ind1, ind2
+
+def mut_constrained(ind, indpb=0.3):
+    """Mutation that respects parameter types"""
+    if random.random() < indpb:
+        ind[0] = random.choice(BATCH_SIZES)
+    if random.random() < indpb:
+        ind[1] = random.choice(SEQ_LENGTHS)
+    if random.random() < indpb:
+        ind[2] = random.choice(POWER_LIMITS)
+    if random.random() < indpb:
+        ind[3] = random.choice(MEM_CLOCKS)
+    if random.random() < indpb:
+        ind[4] = random.choice(GRAPHICS_CLOCKS)
+    if random.random() < indpb:
+        ind[5] = random.choice(PRECISIONS)
+    return ind,
 
 def evaluate(ind):
-    """Evaluate a transformer configuration"""
-    batch_size, seq_length, power_limit, mem_clock, precision = ind
+    """Evaluate with strict type checking"""
+    batch_size, seq_length, power_limit, mem_clock, graphics_clock, precision = ind
+    status = "success"
     
-    # Set hardware parameters
+    # Validate types
+    if not isinstance(batch_size, int) or batch_size not in BATCH_SIZES:
+        print(f"[ERROR] Invalid batch_size: {batch_size}")
+        return 1.0, 9999.0, 9999.0
+    if not isinstance(seq_length, int) or seq_length not in SEQ_LENGTHS:
+        print(f"[ERROR] Invalid seq_length: {seq_length}")
+        return 1.0, 9999.0, 9999.0
+    if not isinstance(power_limit, int) or power_limit not in POWER_LIMITS:
+        print(f"[ERROR] Invalid power_limit: {power_limit}")
+        return 1.0, 9999.0, 9999.0
+    if not isinstance(mem_clock, int) or mem_clock not in MEM_CLOCKS:
+        print(f"[ERROR] Invalid mem_clock: {mem_clock}")
+        return 1.0, 9999.0, 9999.0
+    if not isinstance(graphics_clock, int) or graphics_clock not in GRAPHICS_CLOCKS:
+        print(f"[ERROR] Invalid graphics_clock: {graphics_clock}")
+        return 1.0, 9999.0, 9999.0
+    if not isinstance(precision, str) or precision not in PRECISIONS:
+        print(f"[ERROR] Invalid precision: {precision}")
+        return 1.0, 9999.0, 9999.0
+
+    # Set power limit
     try:
         subprocess.run(
-            ["nvidia-smi", "-i", str(GPU_INDEX), "-pl", str(power_limit)],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            ["sudo", "nvidia-smi", "-i", str(GPU_INDEX), "-pl", str(power_limit)],
+            check=True, capture_output=True, text=True, timeout=10
         )
+    except Exception:
+        status = "power_fail"
+
+    # Set clocks
+    try:
         subprocess.run(
-            ["nvidia-smi", "-i", str(GPU_INDEX), "-ac", f"{mem_clock},{mem_clock}"],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            ["sudo", "nvidia-smi", "-i", str(GPU_INDEX), "-ac", f"{mem_clock},{graphics_clock}"],
+            check=True, capture_output=True, text=True, timeout=10
         )
-    except subprocess.CalledProcessError:
-        print(f"Hardware setting failed for config {ind}")
-    
+    except Exception:
+        status = "clock_fail"
+
     # Run benchmark
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(GPU_INDEX)
-    
-    result_file = f"temp_result_{random.randint(1000,9999)}.json"
-    
-    subprocess.run([
-        "python", "baseline_benchmark_transformer.py",
-        f"--batch_size={batch_size}",
-        f"--seq_length={seq_length}",
-        f"--precision={precision}",
-        f"--output={result_file}"
-    ], check=True, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    
-    # Parse results
-    with open(result_file, "r") as f:
-        results = json.load(f)
-    os.remove(result_file)
-    
-    # Extract metrics (assuming single run)
-    latency_ms = results[0]["latency_mean_ms"]
-    throughput = results[0]["throughput_tokens_per_sec"]
-    memory_gb = results[0]["memory_allocated_gb"]
-    power_w = results[0].get("power_mean_W", 0)
-    
-    # Save to CSV
+    out_fn = f"temp_result_{random.randint(1000,9999)}.json"
+
+    try:
+        subprocess.run([
+            "python", "baseline_benchmark_transformer.py",
+            f"--batch_size={batch_size}",
+            f"--seq_length={seq_length}",
+            f"--precision={precision}",
+            f"--output={out_fn}",
+            "--num_runs=50",
+            "--warmup=5"
+        ],
+        check=True, env=env, capture_output=True, text=True, timeout=300)
+        
+        with open(out_fn) as f:
+            results = json.load(f)
+        result = results[0]
+        os.remove(out_fn)
+        
+        throughput = result.get("throughput_tokens_per_sec", 1.0)
+        latency = result.get("latency_mean_ms", 9999.0)
+        memory = result.get("memory_allocated_gb", 0.0)
+        power_w = result.get("power_mean_W", float(power_limit))
+        
+    except Exception as e:
+        print(f"[ERROR] Benchmark failed: {batch_size},{seq_length},{power_limit},{mem_clock},{graphics_clock},{precision}")
+        throughput, latency, memory, power_w = 1.0, 9999.0, 0.0, float(power_limit)
+        status = "benchmark_fail"
+    finally:
+        if os.path.exists(out_fn):
+            try:
+                os.remove(out_fn)
+            except:
+                pass
+
     with open(RESULTS_FILE, "a", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            GPU_INDEX, batch_size, seq_length, power_limit, 
-            mem_clock, precision, latency_ms, throughput, memory_gb, power_w
-        ])
+        writer.writerow([GPU_INDEX, batch_size, seq_length, power_limit,
+                         mem_clock, graphics_clock, precision, throughput, 
+                         latency, memory, power_w, status])
     
-    return throughput, latency_ms, power_w
+    return throughput, latency, power_w
 
 toolbox.register("evaluate", evaluate)
-toolbox.register("mate", tools.cxTwoPoint)
-toolbox.register("mutate", tools.mutShuffleIndexes, indpb=0.3)
+toolbox.register("mate", cx_constrained)
+toolbox.register("mutate", mut_constrained, indpb=0.3)
 toolbox.register("select", tools.selNSGA2)
 
 def main():
-    """Run evolutionary optimization"""
+    print("="*80)
+    print("EVOLUTIONARY OPTIMIZER FOR H100 TRANSFORMER")
+    print("="*80)
+    
     pop = toolbox.population(n=12)
     hof = tools.HallOfFame(5)
     
     stats = tools.Statistics(lambda ind: ind.fitness.values)
-    stats.register("avg", lambda fits: (
-        sum(f[0] for f in fits) / len(fits),
-        sum(f[1] for f in fits) / len(fits),
-        sum(f[2] for f in fits) / len(fits)
-    ))
-    stats.register("max", lambda fits: (
-        max(f[0] for f in fits),
-        min(f[1] for f in fits),
-        min(f[2] for f in fits)
-    ))
+    stats.register("avg", lambda fits: tuple(sum(x) / len(x) for x in zip(*fits)))
+    stats.register("max", lambda fits: (max(f[0] for f in fits), min(f[1] for f in fits), min(f[2] for f in fits)))
     
-    print("Starting EA optimization for Transformer workloads...")
-    pop, logbook = algorithms.eaMuPlusLambda(
-        pop, toolbox, mu=12, lambda_=12, cxpb=0.6, mutpb=0.3,
-        ngen=10, stats=stats, halloffame=hof, verbose=True
-    )
-    
-    # Save generation log
-    log_df = pd.DataFrame(logbook)
-    log_df.to_csv(GENERATION_LOG_FILE, index=False)
-    print(f"\nGeneration log saved to {GENERATION_LOG_FILE}")
+    try:
+        pop, logbook = algorithms.eaMuPlusLambda(
+            pop, toolbox, mu=12, lambda_=12, cxpb=0.6, mutpb=0.4,
+            ngen=20, stats=stats, halloffame=hof, verbose=True
+        )
+    except KeyboardInterrupt:
+        print("\n[INFO] Interrupted by user")
+    except Exception as e:
+        print(f"\n[ERROR] EA failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
     
     print("\n" + "="*80)
     print("TOP 5 CONFIGURATIONS:")
     print("="*80)
     for i, ind in enumerate(hof, 1):
-        batch_size, seq_length, power_limit, mem_clock, precision = ind
+        batch_size, seq_length, power_limit, mem_clock, graphics_clock, precision = ind
         throughput, latency, power = ind.fitness.values
-        print(f"\n{i}. Batch: {batch_size}, SeqLen: {seq_length}, Power: {power_limit}W, "
-              f"MemClock: {mem_clock}MHz, Precision: {precision}")
-        print(f"   Throughput: {throughput:.0f} tokens/s, Latency: {latency:.2f}ms, Power: {power:.1f}W")
+        print(f"\n{i}. Batch={batch_size}, Seq={seq_length}, Power={power_limit}W")
+        print(f"   Mem={mem_clock}MHz, Gfx={graphics_clock}MHz, Prec={precision}")
+        print(f"   → {throughput:,.0f} tok/s | {latency:.2f}ms | {power:.1f}W")
     
-    print(f"\nAll results saved to {RESULTS_FILE}")
+    print(f"\n{'='*80}")
+    print(f"Results: {RESULTS_FILE}")
 
 if __name__ == "__main__":
     main()
