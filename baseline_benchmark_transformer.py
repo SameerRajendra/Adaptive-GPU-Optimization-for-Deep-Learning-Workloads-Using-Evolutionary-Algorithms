@@ -150,7 +150,7 @@ def main():
         # Run sweep across multiple configurations
         batch_sizes = [8, 16, 32, 64, 128]
         seq_lengths = [128, 256, 512]
-        precisions = ['fp64','fp32', 'fp16','fp8']
+        precisions = ['fp32', 'fp16']
         
         results = []
         for batch_size in batch_sizes:
