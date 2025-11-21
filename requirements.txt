@@ -1,34 +1,27 @@
-# PyTorch with CUDA 12.1 support
-torch==2.2.0
+# --- CRITICAL FIXES ---
+# PyTorch 2.4+ is REQUIRED for torch.compile on Python 3.12
+torch>=2.4.0
 torchvision
 torchaudio
 --extra-index-url https://download.pytorch.org/whl/cu121
 
-# HuggingFace and ML libraries
-transformers==4.36.2
-accelerate==0.25.0
-datasets==2.16.1
+# NumPy < 2.0 is REQUIRED to prevent binary incompatibility
+numpy<2.0
 
-# Build tools
+# --- STANDARD TOOLS ---
+transformers>=4.36.2
+accelerate>=0.25.0
+datasets>=2.16.1
 ninja
 pybind11
-
-# GPU monitoring
 py3nvml
 nvidia-ml-py3
 gpustat
-
-# Evolutionary algorithms
 deap==1.4.1
-
-# Data science and visualization
-numpy
 scipy
 matplotlib
 pandas
 seaborn
 plotly
-
-# Development tools
 jupyter
 ipython
