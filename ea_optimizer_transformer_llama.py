@@ -108,7 +108,7 @@ def run_optimization():
     init_log_file()
     print(f"Starting Llama-2-7B White-Box Optimization...")
     
-    # FIX: Instantiate the HallOfFame object into a variable FIRST
+    # Instantiate the HallOfFame object into a variable FIRST
     hof = tools.HallOfFame(3) 
     
     pop, log = algorithms.eaMuPlusLambda(
@@ -123,7 +123,7 @@ def run_optimization():
     print("FINAL LLAMA-2 CHAMPIONS")
     print("="*50)
     
-    # FIX: Iterate over the populated variable 'hof'
+    # Iterate over the populated variable 'hof'
     for i, ind in enumerate(hof):
         bs = BATCH_OPTS[ind[0]]
         seq = SEQ_OPTS[ind[1]]
