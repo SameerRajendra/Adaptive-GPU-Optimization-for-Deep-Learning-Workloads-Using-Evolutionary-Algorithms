@@ -1,0 +1,62 @@
+[
+    {
+        "rank": 1,
+        "precision": "bf16",
+        "batch_size": 4,
+        "seq_length": 128,
+        "power_limit": 600,
+        "block_size": 128,
+        "tile_cfg": "tile_16x16",
+        "fused_kernel": "fused_mha_ffn",
+        "attn_kernel": "cutlass",
+        "throughput": 44009.64779160099
+    },
+    {
+        "rank": 2,
+        "precision": "bf16",
+        "batch_size": 4,
+        "seq_length": 256,
+        "power_limit": 600,
+        "block_size": 256,
+        "tile_cfg": "tile_32x32",
+        "fused_kernel": "fused_mha_ffn",
+        "attn_kernel": "math",
+        "throughput": 43518.5530559218
+    },
+    {
+        "rank": 3,
+        "precision": "bf16",
+        "batch_size": 4,
+        "seq_length": 256,
+        "power_limit": 600,
+        "block_size": 256,
+        "tile_cfg": "tile_32x32",
+        "fused_kernel": "fused_mha_ffn",
+        "attn_kernel": "cutlass",
+        "throughput": 43362.72196632693
+    },
+    {
+        "rank": 4,
+        "precision": "fp16",
+        "batch_size": 4,
+        "seq_length": 256,
+        "power_limit": 600,
+        "block_size": 256,
+        "tile_cfg": "tile_16x16",
+        "fused_kernel": "fused_mha_ffn",
+        "attn_kernel": "cutlass",
+        "throughput": 43285.56059942389
+    },
+    {
+        "rank": 5,
+        "precision": "fp16",
+        "batch_size": 4,
+        "seq_length": 256,
+        "power_limit": 600,
+        "block_size": 64,
+        "tile_cfg": "tile_16x16",
+        "fused_kernel": "fused_mha_ffn",
+        "attn_kernel": "cutlass",
+        "throughput": 43251.75428437115
+    }
+]
