@@ -1,43 +1,150 @@
-# LLM-GPU-Autotuner: Evolutionary Parameter Optimization
+# AEGOF — Adaptive Evolutionary GPU Optimization Framework
 
-This repository contains an automated framework for optimizing the hardware and software execution parameters of Large Language Models (specifically LLaMA-2-7B) on high-performance accelerators like NVIDIA H100 GPUs. 
+> An automated multi-objective autotuning pipeline for **LLaMA-2-7B on NVIDIA H100**, jointly optimizing 8 hardware/software knobs using an NSGA-II evolutionary algorithm. Achieves up to **8.09× efficiency multiplier** over standard PyTorch defaults.
 
-By leveraging an Evolutionary Algorithm (EA), the system intelligently navigates a massive, complex search space of GPU configurations—including batch sizes, precision formats, power limits, and low-level CUDA kernel choices—to find the configurations that yield the highest throughput (tokens/second) and optimal power efficiency.
+---
 
-## 📁 Repository Structure
+## 📋 Table of Contents
+- [Overview](#overview)
+- [Key Results](#key-results)
+- [How It Works](#how-it-works)
+- [Search Space](#search-space)
+- [Repository Structure](#repository-structure)
+- [Setup & Installation](#setup--installation)
+- [Usage](#usage)
+- [Requirements](#requirements)
 
-* **`baseline_benchmark_llama_v2.py`**: The core evaluation engine. It runs a whitebox benchmark of the `NousResearch/Llama-2-7b-hf` model. It accepts dynamic arguments for batch size, sequence length, precision (`bf16`, `fp16`), power limits, and autotuning knobs (block sizes, tile configurations, and attention kernels like FlashAttention or CUTLASS).
-* **`ea_optimizer_v4.py`**: The evolutionary search script built using the `deap` framework. It initializes a population of configurations, evaluates their fitness via the benchmark script, and applies crossover and mutation to evolve highly optimized parameter sets over multiple generations.
-* **`llama_champions_v2.json`**: A Hall of Fame output file containing the absolute best configurations discovered during the evolutionary runs, ranked by throughput.
-* **`llama_trials_v3.csv`**: A comprehensive log of all trial executions, recording timestamps, parameters, resulting throughput, Model Flops Utilization (MFU), and error logs for failed runs.
-* **`transformer_result.xlsx - Sheet1.csv`**: Generation-over-generation statistical logs tracking the average and maximum fitness improvements of the H100 transformer benchmark.
+---
 
-## 🧠 How It Works
+## Overview
 
-The optimizer treats the GPU execution parameters as "genes" in an individual configuration. 
+Manually tuning GPU execution parameters for LLMs is a combinatorial nightmare — batch sizes, power limits, precision formats, kernel strategies, and tile configurations interact non-linearly. AEGOF automates this via **evolutionary search**:
 
+- **NSGA-II multi-objective optimizer** (via DEAP) balancing throughput (tokens/s) vs. power consumption (Watts)
+- **FlashAttention-2** and **CUTLASS** backends integrated via a white-box benchmarking harness
+- **Robust fault tolerance**: handles CUDA OOM and subprocess timeouts, enabling 238+ unique configurations evaluated without manual intervention
+- **Hall of Fame** output: top configurations saved to JSON for reproducible deployment
 
+---
 
-1.  **Initialization:** The script generates a random initial population of 16 distinct configurations.
-2.  **Evaluation:** Each configuration is passed to the benchmark script. The benchmark measures the throughput (tokens/s) and records the power efficiency. 
-3.  **Selection & Evolution:** Using a $\mu + \lambda$ evolutionary strategy, the best-performing configurations are selected to "breed." 
-4.  **Crossover & Mutation:** The algorithm swaps parameters between successful runs and randomly mutates others to explore new optimization strategies (e.g., swapping `tile_16x16` for `tile_32x32` or changing the thread block size).
-5.  **Hall of Fame:** After 5 generations, the absolute best configurations are saved to `llama_champions_v2.json`.
+## Key Results
 
-### 🔍 The Search Space
+| Metric | PyTorch Default | AEGOF Best Config | Improvement |
+|--------|----------------|-------------------|-------------|
+| Efficiency multiplier | 1.0× | **8.09×** | +709% |
+| Configurations evaluated | — | 238+ | — |
+| Generations run | — | 5 | — |
+| Initial population size | — | 16 | — |
 
-| Category | Parameters | Options |
-| :--- | :--- | :--- |
-| **Workload** | Batch Size, Seq Length | `[1, 2, 4, 8, 16, 32]`, `[128, 256, 512, 1024]` |
-| **Hardware** | Power Limit (W), Precision | `[300, 500, 600, 700]`, `[bf16, fp16]` |
-| **Compute** | Block Size, Tile Config | `[64, 128, 256]`, `[tile_16x16, tile_32x32]` |
-| **Kernels** | Fused Kernel, Attention | `[standard, fused_mha_ffn]`, `[flash, math, mem_efficient, cutlass]` |
+---
 
-## 🚀 Getting Started
+## How It Works
+
+```
+  ┌────────────────────────────┐
+  │   Random Initial Population    │  (16 configurations)
+  └───────────┬───────────────┘
+                 │
+                 ▼
+  ┌────────────────────────────┐
+  │   Benchmark Evaluation          │  (baseline_benchmark_llama_v2.py)
+  │   • Throughput (tokens/s)       │
+  │   • Power draw (Watts)          │
+  │   • MFU measurement             │
+  └───────────┬───────────────┘
+                 │
+                 ▼
+  ┌────────────────────────────┐
+  │   NSGA-II Selection             │  (μ+λ strategy)
+  │   Crossover & Mutation          │
+  └───────────┬───────────────┘
+                 │
+          5 Generations
+                 │
+                 ▼
+  ┌────────────────────────────┐
+  │   Hall of Fame (JSON)           │  (top configs saved)
+  └────────────────────────────┘
+```
+
+---
+
+## Search Space
+
+| Category | Parameter | Options |
+|----------|-----------|--------|
+| **Workload** | Batch Size | `[1, 2, 4, 8, 16, 32]` |
+| **Workload** | Sequence Length | `[128, 256, 512, 1024]` |
+| **Hardware** | Power Limit (W) | `[300, 500, 600, 700]` |
+| **Hardware** | Precision | `[bf16, fp16]` |
+| **Compute** | Block Size | `[64, 128, 256]` |
+| **Compute** | Tile Config | `[tile_16x16, tile_32x32]` |
+| **Kernels** | Fused Kernel | `[standard, fused_mha_ffn]` |
+| **Kernels** | Attention Backend | `[flash, math, mem_efficient, cutlass]` |
+
+---
+
+## Repository Structure
+
+```
+AEGOF/
+├── baseline_benchmark_llama_v2.py   # White-box benchmark harness
+├── ea_optimizer_v4.py               # NSGA-II evolutionary optimizer (DEAP)
+├── llama_champions_v2.json          # Hall of Fame — best discovered configs
+├── llama_trials_v3.csv              # Full trial log (params, throughput, MFU, errors)
+├── transformer_result.xlsx          # Generation-over-generation fitness logs
+├── Sameer_AAI_800_Final_Report.pdf  # Full project report
+└── README.md
+```
+
+---
+
+## Setup & Installation
 
 ### Prerequisites
-
-Ensure you have a CUDA-compatible environment (ideally with H100 GPUs) and the following Python packages installed:
+- NVIDIA H100 GPU (or any CUDA-compatible GPU)
+- CUDA Toolkit ≥ 12.0
+- Python 3.10+
 
 ```bash
-pip install torch transformers deap
+git clone https://github.com/SameerRajendra/Adaptive-GPU-Optimization-for-Deep-Learning-Workloads-Using-Evolutionary-Algorithms.git
+cd Adaptive-GPU-Optimization-for-Deep-Learning-Workloads-Using-Evolutionary-Algorithms
+pip install torch transformers deap flash-attn
+```
+
+---
+
+## Usage
+
+```bash
+# Run a single benchmark config manually
+python baseline_benchmark_llama_v2.py \
+    --batch_size 8 \
+    --seq_len 512 \
+    --precision bf16 \
+    --power_limit 600 \
+    --attention flash
+
+# Run the full evolutionary optimizer
+python ea_optimizer_v4.py
+# Outputs: llama_champions_v2.json (best configs)
+#          llama_trials_v3.csv     (full trial log)
+```
+
+---
+
+## Requirements
+
+```
+torch>=2.2.0
+transformers>=4.40.0
+deap>=1.4.1
+flash-attn>=2.5.0
+nvidia-ml-py>=12.0.0
+```
+
+---
+
+*Course: AAI 800 — Stevens Institute of Technology • Sept–Dec 2025*  
+*Author: [Sameer Rajendra](https://github.com/SameerRajendra)*  
+*[📄 Read the Full Report](https://raw.githubusercontent.com/SameerRajendra/Adaptive-GPU-Optimization-for-Deep-Learning-Workloads-Using-Evolutionary-Algorithms/transformer-with-custom-kernal/Sameer_AAI_800_Final_Report.pdf)*
